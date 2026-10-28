@@ -1,6 +1,6 @@
 # Architecture
 
-Status: design proposal, not implemented. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
+Status: system design proposal; milestone 2A pure logic and tests are implemented, with results in [PLAN.md](PLAN.md). Database and integration designs remain unimplemented. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
 
 ## Confirmed direction
 
@@ -17,7 +17,7 @@ Realtime carries change notifications, not authoritative picks or scores. After 
 
 ## Proposed data model
 
-Names are illustrative; milestone 2B will refine keys and migrations and validate them against an actual development database. Milestone 2A covers only pure logic and tests.
+Names are illustrative; milestone 2B will refine keys and migrations and validate them against an actual development database. Milestone 2A implemented only pure logic and tests.
 
 | Scope | Records and invariants |
 | --- | --- |
@@ -30,7 +30,7 @@ Names are illustrative; milestone 2B will refine keys and migrations and validat
 
 Prefer soft reversal (`reversed_at`) plus partial unique indexes on active picks over deleting history. A full event-replay model offers richer reconstruction but adds complexity; soft reversal with immutable operation logs is the recommended starting choice. Preserve request results even when their pick is later reversed: retrying that request returns its original outcome, never creates a new pick. New intent requires a new request ID.
 
-Store scoring categories separately: pass/rush/receive yards and TDs, receptions, individual return TDs, each conversion category, interceptions thrown, fumbles lost, field goals by made-distance band, extra points made, and each missed-kick type. Keep raw source data for review. Validate normalized categories as disjoint where necessary; conversion plays must not also contribute ordinary play stats. Recommend integer hundredths of a point (yard weights 4/10/10; reception 100, etc.); validate provider units before conversion and never use binary floating-point for totals.
+Store scoring categories separately: pass/rush/receive yards and TDs, receptions, individual return TDs, each conversion category, interceptions thrown, fumbles lost, field goals by made-distance band, extra points made, and each missed-kick type. Keep raw source data for review. Validate normalized categories as disjoint where necessary; conversion plays must not also contribute ordinary play stats. The implemented pure scorer uses integer hundredths of a point (yard weights 4/10/10; reception 100, etc.); validate provider units before conversion and never use binary floating-point for totals.
 
 ## Proposed authorization
 
