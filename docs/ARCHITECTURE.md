@@ -1,11 +1,11 @@
 # Architecture
 
-Status: system design proposal; milestone 2A pure logic and tests are implemented, with results in [PLAN.md](PLAN.md). Database and integration designs remain unimplemented. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
+Status: system design proposal; milestone 2A pure logic and tests are implemented, with results in [PLAN.md](PLAN.md). Foundation migration 20261028000000 is applied to development (user-reported). Its rollback-only storage verification returned PASS on 2026-11-03; milestone acceptance remains pending review, and RPC/integration behavior is unverified. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
 
 ## Confirmed direction
 
 - Next.js App Router, TypeScript, Tailwind, npm; Supabase PostgreSQL, Auth, and Realtime. GitHub for source and Vercel for eventual hosting.
-- No external service accounts/connections are configured for this repo. The purchased Spaceship domain is hardikbhardwaj.com; eventual app host is playoffs.hardikbhardwaj.com. Personal homepage is a separate future project.
+- Supabase CLI 2.122.0 is installed and the repository is linked to `playoff-fantasy-dev` (user-reported development target). Initialized local config targets PostgreSQL 17; Docker is not installed. Hosted schema and credentials were not inspected. The purchased Spaceship domain is hardikbhardwaj.com; eventual app host is playoffs.hardikbhardwaj.com. Personal homepage is a separate future project.
 - SQL migrations version schema changes. Keep required secrets server-side and out of Git. Prevent local/preview writes to production. Plan protected, recoverable data exports.
 - Minimal infrastructure; no microservices, Redis, or queues without demonstrated need.
 
@@ -15,22 +15,80 @@ Use one Next.js application and one PostgreSQL database. Server entry points aut
 
 Realtime carries change notifications, not authoritative picks or scores. After notifications, fetch state; after reconnect, fetch a full snapshot. Reject older versions and periodically refresh while the draft room is open. Keep a request ID through retries and show pending/uncertain outcomes until reconciled.
 
-## Proposed data model
+## Applied foundation migration
 
-Names are illustrative; milestone 2B will refine keys and migrations and validate them against an actual development database. Milestone 2A implemented only pure logic and tests.
+[20261028000000_league_draft_foundation.sql](../supabase/migrations/20261028000000_league_draft_foundation.sql) creates 14 public tables in one transaction, without data, policies, RPCs, triggers, or extensions. The user reports this migration applied on `playoff-fantasy-dev`; the storage assertions below have passed there. Future schema choices remain proposals until accepted. No sample managers, emails, or NFL records are inserted.
 
-| Scope | Records and invariants |
+| Tables | Stored foundation / constraints |
 | --- | --- |
-| Shared NFL data | `seasons`, `teams`, `players`, `player_seasons` (season/team/position), `provider_player_ids`, search aliases, `games`, team playoff status. Stable internal player IDs; provider mapping must be unambiguous within its provider namespace. |
-| Shared actuals | `player_game_stats` keyed by player/game; normalized separate scoring categories, explicit completeness, provenance/revision. `import_runs` and source snapshots retain requester, timestamps, provider, status, mappings, changes. Audited manual corrections use the same publication path. |
-| League access | `leagues` with explicit NFL season and independent manager/round settings; durable `memberships`, email invitations, account links, league roles; separate application-admin grants. Detach deleted accounts from durable memberships rather than cascading picks/scores. |
-| Draft configuration | `drafts` with status, next pick, version, cutoff and frozen configuration; ordered membership slots, eligible player snapshot with season/team/position, immutable scoring version. Unique order position per draft and one order slot per membership. |
-| Draft history | `picks` with draft, overall slot, round, owner membership, player, acting account, on-behalf marker, reversal metadata; append-only operation/audit records and request results. Active picks uniquely constrain draft/player and draft/overall slot. |
-| Derived results | Player/game/scoring-version points and league score publication revisions; rosters derived from active picks. Optional result snapshots support finalization/reopening if that open policy is accepted. |
+| `nfl_seasons` | Explicit NFL season year and following playoff-end year; no historical import workflow. |
+| `nfl_teams`, `nfl_players` | Stable UUID identities; names are not identity keys. |
+| `nfl_season_teams` | Season-specific team name/abbreviation and playoff eligibility; unique season/team. |
+| `nfl_season_players` | One team/position per player/season; QB/RB/WR/TE/K only. Composite FK requires a playoff-eligible season/team. Individual kicker identity must be reviewed before pool finalization. |
+| `leagues` | Season, independent positive manager count and rounds, safe-integer total-pick limit. No coupling to 10×8 or 12×7. |
+| `league_memberships` | Durable UUID, league, display name, member/commissioner role, optional account link and departure time. One nonnull account per league; multiple unclaimed memberships allowed. |
+| `league_scoring_versions` | Keyed by league/version; ruleset label and all 19 weights in integer hundredths. Defaults and CHECKs fix each weight to SPEC and the pure scorer. No arbitrary custom scoring or bonus fields. |
+| `drafts` | One draft per league (proposal), same league season/scoring version via composite FKs; copied manager count/rounds, status, next pick, safe-integer version, order/pool finalization, freeze/start/completion/cutoff timestamps. Completion requires the end sentinel. |
+| `draft_order` | Unique position per draft and membership per league/draft; membership FK includes league. Positions are original saved-order slots, not chronological positions within reversed rounds. |
+| `draft_player_pool` | Unique draft/player; league/draft/season FK and season/player/team/position/eligible FK. Copies season-specific eligible team/position into the pool. |
+| `draft_requests` | Unique `(draft_id, actor_user_id, request_key)`; operation plus complete JSON-object payload/result and before/after versions. Stores successful committed outcomes only, including after undo. |
+| `draft_picks` | Owner FK must reference that draft's saved order; player must reference that draft's pool. Request and reversal references must belong to the same league/draft. One pick per original request, including reversed history. |
+| `draft_audit_events` | Same-league/draft optional request/pick links; actor UUID/membership, event type, draft version, JSON details and timestamp. Storage for rerandomizations and draft changes; logging operations are deferred. |
 
-Prefer soft reversal (`reversed_at`) plus partial unique indexes on active picks over deleting history. A full event-replay model offers richer reconstruction but adds complexity; soft reversal with immutable operation logs is the recommended starting choice. Preserve request results even when their pick is later reversed: retrying that request returns its original outcome, never creates a new pick. New intent requires a new request ID.
+Partial unique indexes on active picks (`reversed_at IS NULL`) enforce player per draft and overall pick per draft. Reversal requires a timestamp and distinct reversal-request reference; reversing a pick frees both uniqueness slots without deleting history. New intent uses a new request key.
 
-Store scoring categories separately: pass/rush/receive yards and TDs, receptions, individual return TDs, each conversion category, interceptions thrown, fumbles lost, field goals by made-distance band, extra points made, and each missed-kick type. Keep raw source data for review. Validate normalized categories as disjoint where necessary; conversion plays must not also contribute ordinary play stats. The implemented pure scorer uses integer hundredths of a point (yard weights 4/10/10; reception 100, etc.); validate provider units before conversion and never use binary floating-point for totals.
+All history-bearing foreign keys use `ON DELETE RESTRICT ON UPDATE RESTRICT`, except `league_memberships.user_id → auth.users.id ON DELETE SET NULL`. Account deletion therefore detaches the account while durable memberships, order, picks, requests, and audit remain. Departure marks `departed_at`, not deletion. Future scores must reference durable memberships/picks, never cascade from accounts. No Supabase-managed table is altered.
+
+Request/audit actor UUIDs are deliberately immutable identity snapshots without live `auth.users` FKs. This retains the original retry namespace after account deletion. Future RPCs must capture the actor from verified authentication, bind it to the recorded membership, and compare operation plus full normalized payload for conflicting key reuse. Stored result objects must contain the original successful response, not be reconstructed from a now-reversed pick. Object-shape CHECKs do not validate response semantics or enforce append-only history; future RPCs/grants must do that.
+
+The restrictive pool FK prevents changing a referenced season's eligibility/team/position in place; it favors historical integrity over easy corrections. Future correction/versioning needs review. Pool rows and scoring versions still need freeze/immutability enforcement; copied columns and timestamps alone do not freeze data. `created_at` defaults exist throughout; mutable league/membership/draft records also have `updated_at` with ordering checks. Future mutation functions must maintain `updated_at` explicitly for every affected row that has that column; insert defaults and ordering checks do not refresh it on update (no timestamp trigger is included).
+
+Playoff eligibility records qualification for the season and inclusion in the draft pool; it is distinct from subsequent elimination. Elimination must never change `nfl_season_teams.playoff_eligible`, `nfl_season_players.team_playoff_eligible`/`eligible`, or the eligibility keys referenced by frozen player pools. Later game/team-status storage must track elimination separately. Eliminated players retain their picks and earned points; only the players-remaining count changes.
+
+## Access defaults and deferred transaction invariants
+
+Every new table explicitly enables RLS and revokes all table privileges from `PUBLIC`, `anon`, and `authenticated`. No permissive policies, client grants, RPCs, or realtime-publication changes are added. Ordinary clients cannot read even their own league yet; narrowly scoped member reads and authorized RPCs come later. Owners and privileged service roles can bypass RLS; this is not an implemented application authorization system. The migration changes no schema-wide defaults or unrelated tables. See [Supabase RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+Future authorized, locked transactions must enforce:
+
+- Start: active membership count equals manager count; contiguous complete saved order; finalized pool/kickers; copied league settings agree; frozen scoring, membership, rounds, pool and order cannot subsequently change. Server randomization must save/log pre-start rerandomizations.
+- Pick: authenticated actor/membership and commissioner-on-behalf checks; running state; expected version/pick; correct snake turn, round, in-round position and draft bounds; season-wide cutoff; atomic request/pick/audit/state advancement and final completion.
+- Retry: same actor/key/operation/payload returns its original result; different payload fails. Insert the successful request, pick, audit and version change in the same transaction, never in separate HTTP writes.
+- Pause/resume/undo: same draft lock; paused/latest-pick/pregame checks; final-pick undo support; restore turn/availability; immutable successful request results; append-only audit. Reversal FK does not itself prove the referenced operation is an authorized undo.
+- Cutoff: trusted kickoff/started-game evidence, blocked unfinished draft and explicit administrative resolution. No wall-clock CHECK is used as a substitute for transaction-time checks.
+
+Row-local checks and composite FKs enforce storage relationships; they cannot establish the cross-row temporal rules above. Foreign keys and unique constraints are designed using [PostgreSQL constraint semantics](https://www.postgresql.org/docs/17/ddl-constraints.html), and are covered by the limited storage verification below; future transaction invariants remain unimplemented.
+
+## Deferred relationships and decisions
+
+Later migrations will connect games to season/team identities; player/game normalized stats to season-player identity; scored contributions to game, player and frozen league scoring version; and derived rosters/totals to active picks and durable memberships. Import jobs/provenance/corrections will reference games and source snapshots. Provider ID mappings/search aliases, invitations/verified-email claims, and application-admin grants are also deferred; membership rows alone do not grant invitation-based entry.
+
+Projections will reference player/game/scoring configuration independently of actuals. Finalized-result snapshots and import leases remain proposals; no tables for either are included. Unusual recovery TDs, blocked kicks, ranking sources, cutoff authority/resolution, correction policy, email normalization, and audit/actor retention remain unresolved decisions. Recommend retaining actor UUID snapshots for history, with a reviewed retention policy before launch. One draft per league and one team/position per player/season are simplifying proposals; revisit explicitly if approved requirements change.
+
+## Review and development application commands
+
+The user reports migration 20261028000000 applied to **playoff-fantasy-dev**, and a dashboard query confirmed RLS on all 14 tables with no `anon`/`authenticated` SELECT. On 2026-11-03, after the user authorized direct query execution, `supabase db query --linked --file supabase/tests/foundation-verification.sql` returned `foundation_verification: PASS` and exit status 0. No migration/schema changes or auth-user fixture changes were made. Verification acceptance remains pending user review; milestone 2B is not marked complete.
+
+The initialized config is unchanged local-development config, not evidence of hosted Auth security. Its generated signup/seed defaults need review in later setup work; no seed file/data is added here. `.temp/`, `.branches/`, `.env*`, and locally generated `signing_keys.json` are ignored; `config.toml`, `.gitignore`, and migrations remain versionable. Previously documented migration commands remain available for separately authorized future migrations; do not reapply the foundation SQL manually:
+
+```sh
+supabase migration list --linked
+supabase db push --linked --dry-run --skip-vault
+# Apply pending migrations only when separately authorized, after verifying DEVELOPMENT:
+supabase db push --linked --skip-vault
+```
+
+CLI 2.122.0 help confirms these flags. `--skip-vault` avoids config-driven Vault updates; no seed/role flags, plaintext credential arguments, or debug output are needed. [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-db-push).
+
+## Running the foundation verification
+
+Open [foundation-verification.sql](../supabase/tests/foundation-verification.sql) in the **playoff-fantasy-dev** Supabase SQL Editor, select the privileged `postgres` role, and run the **entire file**. It uses `BEGIN`, an anonymous assertion block, a PASS result, and a final `ROLLBACK`. No tables/functions are created. Fixtures use generated UUIDs, NULL membership account links, and an unused synthetic season; no real user data or `auth.users` records are read or changed.
+
+Success requires no errors, `foundation_verification = PASS`, and completion of the final `ROLLBACK`; a notice before rollback also reports assertions passed when the editor displays notices. Running only a selection or seeing only the notice is insufficient. **If any test fails, execute `ROLLBACK;` before running other SQL in the same session**, even if the editor may already have rolled back. Expected constraint errors are handled internally; unexpected error types, wrong constraints, and invalid writes that succeed fail explicitly.
+
+Coverage: all 14 tables exist and enable RLS; `PUBLIC` has no table ACL privileges and `anon`/`authenticated` have no effective table privileges (including inherited rights). Same-league records and independent cross-league player selection succeed. Cross-league order/member references, non-order owners, cross-draft pool/request references, duplicate active players/pick slots, duplicate request identity, invalid positions, and each of the 19 incorrect scoring weights fail at the expected constraints. Soft reversal permits player/slot reuse with a new request, and the original successful request remains unchanged when compared as a complete JSONB row snapshot.
+
+The account-link FK is catalog-checked for nullable `ON DELETE SET NULL / ON UPDATE RESTRICT`, without touching accounts. Account-deletion behavior remains deferred until authentication fixtures are authorized. This validates **storage constraints**, not RPC authorization, turn enforcement, concurrency, or retry implementation. Direct privileged fixture inserts do not model authenticated gameplay or prove freeze/immutability. Further development-database verification and user review are required before completing milestone 2B. Exception patterns follow [PostgreSQL PL/pgSQL error handling](https://www.postgresql.org/docs/17/plpgsql-control-structures.html#PLPGSQL-ERROR-TRAPPING).
 
 ## Proposed authorization
 
