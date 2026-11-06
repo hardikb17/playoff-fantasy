@@ -1,6 +1,6 @@
 # Architecture
 
-Status: system design proposal; milestone 2A pure logic and tests are implemented, with results in [PLAN.md](PLAN.md). Foundation migration 20261028000000 is applied to development (user-reported). Its rollback-only storage verification returned PASS on 2026-11-03; milestone acceptance remains pending review, and RPC/integration behavior is unverified. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
+Status: system design proposal; milestone 2A pure logic and tests are implemented, with results in [PLAN.md](PLAN.md). Foundation migration 20261028000000 is applied to development (user-reported). Its rollback-only storage verification returned PASS on 2026-11-03; the user accepted milestone 2B on 2026-11-04 within the storage-verification limits below. RPC/integration behavior is unverified. Product rules in [SPEC.md](SPEC.md) are confirmed; table shapes, state names, and mechanisms below are recommendations pending implementation review.
 
 ## Confirmed direction
 
@@ -14,6 +14,10 @@ Status: system design proposal; milestone 2A pure logic and tests are implemente
 Use one Next.js application and one PostgreSQL database. Server entry points authenticate and validate requests; database policies and authorized transaction functions enforce access and invariants. Keep pure snake-order and scoring functions independent of UI, network, and ingestion adapters.
 
 Realtime carries change notifications, not authoritative picks or scores. After notifications, fetch state; after reconnect, fetch a full snapshot. Reject older versions and periodically refresh while the draft room is open. Keep a request ID through retries and show pending/uncertain outcomes until reconciled.
+
+## Milestone 3A authentication
+
+Milestone 3A is complete (accepted 2026-11-06). The user verified real delivery/confirmation, persistence across refresh/browser restart, sign-out protecting `/account`, and a Safari-requested link verifying in Chrome. Physical cross-device use and refresh after access-token expiry remain unverified. Sanitized diagnostics remain development-only. [AUTH_SETUP.md](AUTH_SETUP.md) specifies the required token-hash Magic Link template and hosted setup. `/auth/confirm` renders standalone no-store HTML with origin-only `strict-origin` referrer policy on GET, then verifies `type=email` only on explicit same-origin POST and redirects to configured `/account`. This flow uses no requesting-browser verifier cookie. `/account` performs a server `getUser` lookup; `src/proxy.ts` refreshes cookies with `getClaims`. User-bound responses are dynamic and uncached; no service key is used. Subsequent database access must use the authenticated user's client/session. Email-only localStorage preference is separate from Supabase session cookies. All league tables still deny client access; invitations and claims remain milestone 3B.
 
 ## Applied foundation migration
 
@@ -67,7 +71,7 @@ Projections will reference player/game/scoring configuration independently of ac
 
 ## Review and development application commands
 
-The user reports migration 20261028000000 applied to **playoff-fantasy-dev**, and a dashboard query confirmed RLS on all 14 tables with no `anon`/`authenticated` SELECT. On 2026-11-03, after the user authorized direct query execution, `supabase db query --linked --file supabase/tests/foundation-verification.sql` returned `foundation_verification: PASS` and exit status 0. No migration/schema changes or auth-user fixture changes were made. Verification acceptance remains pending user review; milestone 2B is not marked complete.
+The user reports migration 20261028000000 applied to **playoff-fantasy-dev**, and a dashboard query confirmed RLS on all 14 tables with no `anon`/`authenticated` SELECT. On 2026-11-03, after the user authorized direct query execution, `supabase db query --linked --file supabase/tests/foundation-verification.sql` returned `foundation_verification: PASS` and exit status 0. No migration/schema changes or auth-user fixture changes were made. The user accepted this successful storage verification on 2026-11-04, completing milestone 2B within the stated limits.
 
 The initialized config is unchanged local-development config, not evidence of hosted Auth security. Its generated signup/seed defaults need review in later setup work; no seed file/data is added here. `.temp/`, `.branches/`, `.env*`, and locally generated `signing_keys.json` are ignored; `config.toml`, `.gitignore`, and migrations remain versionable. Previously documented migration commands remain available for separately authorized future migrations; do not reapply the foundation SQL manually:
 
@@ -88,7 +92,7 @@ Success requires no errors, `foundation_verification = PASS`, and completion of 
 
 Coverage: all 14 tables exist and enable RLS; `PUBLIC` has no table ACL privileges and `anon`/`authenticated` have no effective table privileges (including inherited rights). Same-league records and independent cross-league player selection succeed. Cross-league order/member references, non-order owners, cross-draft pool/request references, duplicate active players/pick slots, duplicate request identity, invalid positions, and each of the 19 incorrect scoring weights fail at the expected constraints. Soft reversal permits player/slot reuse with a new request, and the original successful request remains unchanged when compared as a complete JSONB row snapshot.
 
-The account-link FK is catalog-checked for nullable `ON DELETE SET NULL / ON UPDATE RESTRICT`, without touching accounts. Account-deletion behavior remains deferred until authentication fixtures are authorized. This validates **storage constraints**, not RPC authorization, turn enforcement, concurrency, or retry implementation. Direct privileged fixture inserts do not model authenticated gameplay or prove freeze/immutability. Further development-database verification and user review are required before completing milestone 2B. Exception patterns follow [PostgreSQL PL/pgSQL error handling](https://www.postgresql.org/docs/17/plpgsql-control-structures.html#PLPGSQL-ERROR-TRAPPING).
+The account-link FK is catalog-checked for nullable `ON DELETE SET NULL / ON UPDATE RESTRICT`, without touching accounts. Account-deletion behavior remains deferred until authentication fixtures are authorized. This validates **storage constraints**, not RPC authorization, turn enforcement, concurrency, or retry implementation. Direct privileged fixture inserts do not model authenticated gameplay or prove freeze/immutability. Milestone 2B completion does not claim these deferred behaviors have been tested. Exception patterns follow [PostgreSQL PL/pgSQL error handling](https://www.postgresql.org/docs/17/plpgsql-control-structures.html#PLPGSQL-ERROR-TRAPPING).
 
 ## Proposed authorization
 

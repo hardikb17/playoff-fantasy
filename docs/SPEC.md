@@ -15,7 +15,7 @@ Status: confirmed requirements from the project brief. Implementation proposals 
 - Commissioner-approved email invitations grant league membership; email sign-in links verify account identity. An invited email can claim only its assigned membership. No open league registration.
 - Roles: member, league commissioner, application administrator. Authorize league and membership reads/writes on the server and through database access policies.
 - Account deletion or departure must preserve picks and scores.
-- Email delivery provider and implementation are unselected.
+- Development email delivery uses Supabase Auth email links over hosted Resend SMTP. [AUTH_SETUP.md](AUTH_SETUP.md) records setup and pending real-delivery/browser verification; commissioner invitations and membership claiming remain the next slice.
 
 ## Eligible players
 
@@ -93,7 +93,7 @@ Do not substitute a provider's generic PPR rules.
 | --- | --- | --- |
 | Unfinished draft at cutoff | Exceptions could change competition fairness; automatic picks would violate the rules. | Keep blocked pending an application-admin documented resolution; agree permitted resolutions before draft launch. |
 | Recovery TDs / blocked kicks | Provider categories may not match intended scoring. | Flag unresolved mappings and retain prior published scores until explicitly resolved. |
-| Email delivery / invitation mechanics | Managed delivery reduces operations; provider and identity-normalization behavior need validation. | Use Supabase Auth email links with a reviewed transactional email provider; decide before milestone 3. |
+| Invitation mechanics | Verified-email normalization and invitation token handling still need review; development email delivery is selected. | Use supported invitation handling separate from Magic Links; finalize claim mechanics before milestone 3B. |
 | Draft ranking data | Reviewed ranks aid drafting but require a trustworthy source and maintenance. | Review a season-specific rank list before draft launch; do not replace it with matchup projections. |
 | Import trigger across isolated leagues | A commissioner starts an import, but canonical stats affect other leagues. | Permit only completed games relevant to that commissioner's league; audit the global effect and agree policy before imports ship. |
 | Finalization and later corrections | Shared corrections can change totals after a league finalizes. | Preserve a finalized result snapshot and require explicit logged reopening before republishing changed results; confirm before milestone 7. |
