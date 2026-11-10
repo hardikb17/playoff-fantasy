@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { applicationOrigin } from "@/lib/auth-flow";
@@ -24,6 +25,7 @@ export default async function AccountPage() {
         <h1 className="text-3xl font-bold">Your account</h1>
         <p className="break-words">Signed in as <strong>{user.email}</strong></p>
         <p className="text-sm leading-6 text-slate-600">Your identity is verified. League access requires a separate approved membership.</p>
+        <Link prefetch={false} href="/leagues" className="inline-block underline underline-offset-4">My leagues</Link>
         <form action={signOut}><button className="rounded-lg bg-slate-900 px-5 py-3 font-semibold text-white">Sign out on this browser</button></form>
       </section>
     </main>

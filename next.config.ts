@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   // Auth input and token-bearing URLs must never enter development request logs.
   logging: false,
   async headers() {
-    return ["/login", "/account/:path*", "/auth/:path*"].map((source) => ({
+    return ["/login", "/account/:path*", "/auth/:path*", "/leagues/:path*"].map((source) => ({
       source,
       headers: [
         { key: "Cache-Control", value: "private, no-store, max-age=0, must-revalidate" },

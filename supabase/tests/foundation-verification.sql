@@ -1,5 +1,7 @@
 -- Run this ENTIRE file in playoff-fantasy-dev's SQL Editor as postgres.
--- Requires foundation migration 20261028000000. No schema changes or auth fixtures.
+-- Requires foundation 20261028000000 AND league reads 20261110000000.
+-- Updated 3B1 access expectations; all existing storage assertions are retained.
+-- No schema changes or auth fixtures.
 -- All fixture UUIDs are generated; the synthetic season is chosen from unused keys.
 -- On ANY error, issue ROLLBACK; before running other SQL in the same session.
 -- A successful run returns foundation_verification = PASS and completes ROLLBACK.
@@ -39,7 +41,13 @@ declare
   v_expected_constraint text;
   v_i integer;
   v_count integer;
+  v_column record;
+  v_allowed_columns text[];
+  v_expected_read boolean;
 begin
+  if to_regprocedure('app_private.has_active_league_membership(uuid)') is null then
+    raise exception 'Apply the league membership read migration before this updated verification';
+  end if;
   -- Existence, explicit RLS, PUBLIC ACLs, and effective client privileges.
   foreach v_name in array v_expected_tables loop
     select c.oid, c.relowner, c.relacl, c.relrowsecurity into v_table
@@ -73,6 +81,38 @@ begin
         if pg_catalog.has_table_privilege(v_role, v_table.oid, v_privilege) then
           raise exception '% has % on public.%', v_role, v_privilege, v_name;
         end if;
+      end loop;
+    end loop;
+    -- No table-level privileges are allowed, including on the three read tables.
+    -- SELECT is granted only on the following exact columns for authenticated.
+    v_allowed_columns := case v_name
+      when 'leagues' then array['id','name','season_year','manager_count','draft_rounds']
+      when 'league_memberships' then array['id','league_id','display_name','role','departed_at']
+      when 'league_scoring_versions' then array[
+        'league_id','version','ruleset',
+        'passing_yards_hundredths','rushing_yards_hundredths','receiving_yards_hundredths','receptions_hundredths',
+        'passing_touchdowns_hundredths','rushing_touchdowns_hundredths','receiving_touchdowns_hundredths','return_touchdowns_hundredths',
+        'passing_two_point_conversions_hundredths','rushing_two_point_conversions_hundredths','receiving_two_point_conversions_hundredths',
+        'interceptions_thrown_hundredths','fumbles_lost_hundredths','field_goals_made_under_40_hundredths',
+        'field_goals_made_40_to_49_hundredths','field_goals_made_50_plus_hundredths','extra_points_made_hundredths',
+        'field_goals_missed_hundredths','extra_points_missed_hundredths'
+      ] else array[]::text[] end;
+    for v_column in select attnum,attname,attacl from pg_catalog.pg_attribute
+      where attrelid=v_table.oid and attnum>0 and not attisdropped
+    loop
+      if exists(select 1 from pg_catalog.aclexplode(v_column.attacl) acl where acl.grantee=0) then
+        raise exception 'PUBLIC has a column privilege on %.%',v_name,v_column.attname;
+      end if;
+      foreach v_role in array array['anon','authenticated'] loop
+        v_expected_read := v_role='authenticated' and v_column.attname=any(v_allowed_columns);
+        if pg_catalog.has_column_privilege(v_role,v_table.oid,v_column.attnum,'SELECT') is distinct from v_expected_read then
+          raise exception 'Wrong column SELECT privilege for % on %.%',v_role,v_name,v_column.attname;
+        end if;
+        foreach v_privilege in array array['INSERT','UPDATE','REFERENCES'] loop
+          if pg_catalog.has_column_privilege(v_role,v_table.oid,v_column.attnum,v_privilege) then
+            raise exception 'Unexpected column mutation privilege for % on %.%',v_role,v_name,v_column.attname;
+          end if;
+        end loop;
       end loop;
     end loop;
   end loop;

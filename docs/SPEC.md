@@ -15,7 +15,8 @@ Status: confirmed requirements from the project brief. Implementation proposals 
 - Commissioner-approved email invitations grant league membership; email sign-in links verify account identity. An invited email can claim only its assigned membership. No open league registration.
 - Roles: member, league commissioner, application administrator. Authorize league and membership reads/writes on the server and through database access policies.
 - Account deletion or departure must preserve picks and scores.
-- Development email delivery uses Supabase Auth email links over hosted Resend SMTP. [AUTH_SETUP.md](AUTH_SETUP.md) records setup and pending real-delivery/browser verification; commissioner invitations and membership claiming remain the next slice.
+- Active members may read their leagues, safe manager-roster fields, and league scoring rules. Departed memberships grant no access; account UUIDs and invitation emails are not exposed in the roster. Authentication alone grants no membership.
+- Development email delivery uses Supabase Auth email links over hosted Resend SMTP. [AUTH_SETUP.md](AUTH_SETUP.md) records setup and verification limits; commissioner invitations and membership claiming remain the next slice.
 
 ## Eligible players
 

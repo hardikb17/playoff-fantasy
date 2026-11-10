@@ -18,7 +18,8 @@ Existing scripts: `npm run dev`, `npm run build`, `npm run start`, `npm run lint
 | 2A | Pure snake-draft order and exact-scoring logic with meaningful tests | Test both 10×8 and 12×7 plus independent settings, round reversals, exact scoring and negative yardage. No database integration, authentication, UI, external services, imports, or deployment. | Complete |
 | 2B | Database schema, migrations, constraints, and access-policy design | Foundation applied to development; storage constraints and deny-by-default table access verified by the rollback-only script. RPC and account-deletion behavior remain outside this verification. | Complete (accepted 2026-11-04) |
 | 3A | Supabase email sign-in and server sessions | Token-hash email confirmation by explicit POST, server-verified account and sign-out, persistent-session and cross-browser manual checks. | Complete (accepted 2026-11-06; limits below) |
-| 3B | Commissioner invitations, membership claiming, and access policies | Test invited-email claim, wrong-email denial, role restrictions, cross-league reads/writes and direct database policy enforcement; account removal preserves history. | Next slice; not started |
+| 3B1 | Active-league reads and league overview | Member-scoped column grants/RLS, own-session pages, safe bootstrap, authenticated/JWT-context isolation tests. | Complete (user-verified 2026-11-10) |
+| 3B2 | Commissioner invitations and membership claiming | Test invited-email claim, wrong-email denial, mutation role restrictions, and account-history preservation. | Deferred next slice |
 | 4 | Eligible pool and configuration | Validate season/team/position and individual kickers; verify no duplicate identities, finalized pool/order, logged rerandomizations, independent league settings, and configuration freeze. Review rank source and cutoff authority. | Not started |
 | 5 | Authorized atomic draft operations | Real database concurrency tests: competing picks, stale versions, successful-request retry, payload conflict, commissioner on-behalf permission, pause/resume races, undo/reuse, final-pick undo, cutoff blocking, and durable recovery. Agree cutoff resolution policy before launch. | Not started |
 | 6 | Draft UI and synchronization | Multi-user/mobile checks, refresh/restart/reconnect snapshots, stale notification rejection, periodic refresh fallback, pending/uncertain requests, informational presence. No simulated security/persistence/multiplayer presented as complete. | Not started |
@@ -78,11 +79,25 @@ User-reported manual verification accepted on 2026-11-06:
 
 Milestone 3A is complete with limits: physical cross-device testing and session refresh after access-token expiry remain unverified. One-time/expired-link edge cases and other checklist items are not implied by these reported results. Sanitized diagnostics remain enabled only in development; browser messaging stays generic. Scanner protection reduces accidental consumption but cannot stop scanners that submit forms. Localhost works across browsers on the same computer; physical cross-device testing waits for an authorized deployed HTTPS origin.
 
+## Milestone 3B1 implementation (2026-11-10)
+
+Added [20261110000000_league_membership_reads.sql](../supabase/migrations/20261110000000_league_membership_reads.sql) with column-scoped authenticated SELECT on leagues, safe membership roster fields, and scoring versions. A non-exposed, postgres-owned helper derives identity from `auth.uid()` and checks active membership without recursive RLS. No user UUID/email column or mutation privilege is granted; eleven other tables stay closed. The applied foundation migration is unchanged.
+
+Added server-rendered `/leagues` and `/leagues/[leagueId]` with the existing verified user's client/session, account navigation, generic nonmember not-found, genuine empty state, unavailable states, explicit season/configuration/roster/scoring presentation, and no-store/proxy coverage. No elevated keys, invitations, drafts, creation UI, or imports are used.
+
+Prepared a separate atomic, rerunnable [development bootstrap](../supabase/setup/development-league.sql) with a private confirmed-user UUID placeholder, one named 2026 league (10 slots × 8 rounds), exact scoring, and only that account as commissioner. Prepared [authenticated/JWT-context verification](../supabase/tests/league-membership-reads.sql) requiring three separately provisioned confirmed test accounts. Updated foundation verification checks exact column grants while retaining all storage/closed-table assertions. [LEAGUE_ACCESS.md](LEAGUE_ACCESS.md) explains setup, grants/helper safety, scripts, expected results, and HTTP/browser checks.
+
+Checks on 2026-11-10: `npm test` passes 63 tests; `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `git diff --check` pass. The three new pure tests cover league UUID validation, safe projections, and season/scoring presentation.
+
+User-reported acceptance on 2026-11-10: the read migration was applied to `playoff-fantasy-dev`; `league_membership_reads_verification` and the updated `foundation_verification` both returned PASS; the development bootstrap executed successfully. The commissioner can view the development league and scoring. A separate confirmed account sees no leagues and cannot access the commissioner's league by direct URL. Milestone 3B1 is complete on this evidence. The parenthesized CASE comparison fix is saved in the repository verification script; repository test/bootstrap files retain UUID placeholders.
+
+Database PASS results and browser checks are user-reported, not inferred from mocked tests or rerun during documentation finalization. A separate direct Data API HTTP probe is not claimed. Physical cross-device use, access-token-expiry refresh, and account-deletion behavior remain outside this acceptance. Invitations, membership claiming, and commissioner invitation controls are unimplemented.
+
 ## Next bounded task
 
-Begin milestone 3B with a bounded design for commissioner invitations, verified-email membership claiming, and narrow access policies. Invitation templates/types need their own supported token handling; Magic Link confirmation intentionally rejects `invite` tokens. Account-deletion behavior still awaits authorized authentication fixtures.
+Begin a bounded milestone 3B2 design for commissioner invitations, verified-email membership claiming, and commissioner invitation controls. These remain unimplemented; invitation templates/types need their own supported token handling and explicit authorization before hosted changes or sending.
 
-Freeze, cutoff, role/turn checks, request semantics, and pause/undo synchronization need future authorized transactions (milestone 5). No future hosted configuration changes, user provisioning, sending, schema changes, deployment, commits, or pushes are authorized merely by this plan.
+Freeze, cutoff, turn/role checks, retry semantics, and pause/undo synchronization need future authorized transactions (milestone 5). The plan does not itself authorize hosted changes, account creation, email sending, schema application, deployment, commits, or pushes.
 
 ## Working boundaries
 
